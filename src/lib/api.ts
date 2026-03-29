@@ -1,6 +1,6 @@
 /**
- * API layer — currently uses demo data. When Supabase is configured,
- * change the import below from './demo-data' to './data'.
+ * API layer — connected to live Supabase.
+ * To switch back to demo mode, change './data' to './demo-data'.
  */
 export {
   getTripByAccessCode,
@@ -20,4 +20,4 @@ export {
   getComments,
   addComment,
   getRestaurantReservations,
-} from './demo-data'
+} from './data'
