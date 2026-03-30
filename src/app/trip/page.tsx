@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   Sun,
   Cloud,
   CloudRain,
@@ -19,10 +20,22 @@ import {
   CloudDrizzle,
   Plane,
   CalendarDays,
+  Vote,
+  MessageCircleQuestion,
+  Sparkles,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { getTripByAccessCode, getDays, getActivities, getFamilies } from "@/lib/api";
-import type { Trip, Day, Activity, Family } from "@/types/database";
+import Link from "next/link";
+import {
+  getTripByAccessCode,
+  getDays,
+  getActivities,
+  getFamilies,
+  getDecisions,
+  getDecisionOptions,
+  getQuestions,
+} from "@/lib/api";
+import type { Trip, Day, Activity, Family, Decision, DecisionOption, Question } from "@/types/database";
 
 const ACCESS_CODE_KEY = "croatia2026_access_code";
 const TRIP_START = new Date("2026-07-18T00:00:00");
@@ -102,6 +115,16 @@ interface DayWithActivities extends Day {
   activities: Activity[];
 }
 
+// --- Action Items ---
+
+interface ActionItem {
+  type: "decision" | "question" | "activity";
+  title: string;
+  subtitle: string;
+  href: string;
+  urgency: "high" | "medium" | "low";
+}
+
 // --- Component ---
 
 export default function ItineraryPage() {
@@ -116,6 +139,7 @@ export default function ItineraryPage() {
     split: [],
     dubrovnik: [],
   });
+  const [actionItems, setActionItems] = useState<ActionItem[]>([]);
 
   const toggleActivity = useCallback((id: string) => {
     setExpandedActivities((prev) => {
@@ -148,9 +172,11 @@ export default function ItineraryPage() {
         }
         setTrip(tripData);
 
-        const [daysData, familiesData] = await Promise.all([
+        const [daysData, familiesData, decisionsData, questionsData] = await Promise.all([
           getDays(tripData.id),
           getFamilies(tripData.id),
+          getDecisions(tripData.id),
+          getQuestions(tripData.id),
         ]);
         setFamilies(familiesData);
 
@@ -162,6 +188,73 @@ export default function ItineraryPage() {
           })
         );
         setDays(daysWithActivities);
+
+        // Compute action items
+        const items: ActionItem[] = [];
+
+        // Open decisions needing votes
+        const openDecisions = decisionsData.filter((d) => d.status === "open");
+        for (const d of openDecisions) {
+          const deadlineDate = d.deadline ? new Date(d.deadline) : null;
+          const daysLeft = deadlineDate
+            ? Math.ceil((deadlineDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+            : null;
+          const urgency = daysLeft !== null && daysLeft <= 3 ? "high" : daysLeft !== null && daysLeft <= 7 ? "medium" : "low";
+          items.push({
+            type: "decision",
+            title: d.title,
+            subtitle: daysLeft !== null
+              ? daysLeft <= 0 ? "Deadline passed" : daysLeft === 1 ? "Due tomorrow" : `${daysLeft} days left`
+              : "Vote needed",
+            href: "/trip/decisions",
+            urgency,
+          });
+        }
+
+        // Questions with new answers
+        const answeredQuestions = questionsData.filter((q) => q.status === "answered");
+        for (const q of answeredQuestions) {
+          items.push({
+            type: "question",
+            title: q.question.length > 60 ? q.question.slice(0, 57) + "..." : q.question,
+            subtitle: "New answer from Villa Escape",
+            href: "/trip/questions",
+            urgency: "medium",
+          });
+        }
+
+        // Pending questions (not yet asked)
+        const pendingCount = questionsData.filter((q) => q.status === "pending").length;
+        if (pendingCount > 0) {
+          items.push({
+            type: "question",
+            title: `${pendingCount} question${pendingCount > 1 ? "s" : ""} to send`,
+            subtitle: "Ready to share with Villa Escape",
+            href: "/trip/questions",
+            urgency: "low",
+          });
+        }
+
+        // Activities pending vote
+        const pendingActivities = daysWithActivities.flatMap((d) =>
+          d.activities.filter((a) => a.status === "pending_vote")
+        );
+        if (pendingActivities.length > 0 && openDecisions.length === 0) {
+          // Only show if there are no corresponding decisions (avoid duplicates)
+          items.push({
+            type: "activity",
+            title: `${pendingActivities.length} activit${pendingActivities.length > 1 ? "ies" : "y"} awaiting group decision`,
+            subtitle: "Check the Decisions tab",
+            href: "/trip/decisions",
+            urgency: "low",
+          });
+        }
+
+        // Sort: high urgency first
+        const urgencyOrder = { high: 0, medium: 1, low: 2 };
+        items.sort((a, b) => urgencyOrder[a.urgency] - urgencyOrder[b.urgency]);
+
+        setActionItems(items);
       } catch (err) {
         console.error("Error loading itinerary:", err);
         setError("Failed to load itinerary. Please try again.");
@@ -267,6 +360,11 @@ export default function ItineraryPage() {
       {/* Weather strip */}
       {weather.split.length > 0 && (
         <WeatherStrip split={weather.split} dubrovnik={weather.dubrovnik} />
+      )}
+
+      {/* Needs Attention */}
+      {actionItems.length > 0 && (
+        <ActionDashboard items={actionItems} />
       )}
 
       {/* Day-by-day timeline */}
@@ -558,6 +656,61 @@ function WeatherStrip({
               </div>
             );
           })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// --- Action Dashboard ---
+
+function ActionDashboard({ items }: { items: ActionItem[] }) {
+  const iconForType = (type: ActionItem["type"]) => {
+    switch (type) {
+      case "decision":
+        return <Vote className="h-4 w-4" />;
+      case "question":
+        return <MessageCircleQuestion className="h-4 w-4" />;
+      case "activity":
+        return <CalendarDays className="h-4 w-4" />;
+    }
+  };
+
+  const urgencyStyles = (urgency: ActionItem["urgency"]) => {
+    switch (urgency) {
+      case "high":
+        return "text-red-700 bg-red-50 border-red-200";
+      case "medium":
+        return "text-amber-700 bg-amber-50 border-amber-200";
+      case "low":
+        return "text-primary bg-primary/5 border-primary/15";
+    }
+  };
+
+  return (
+    <Card size="sm">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <Sparkles className="h-4 w-4 text-primary" />
+          Needs Your Attention
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="space-y-2">
+          {items.slice(0, 4).map((item, i) => (
+            <Link
+              key={i}
+              href={item.href}
+              className={`flex items-center gap-3 rounded-lg border p-3 transition-colors hover:opacity-80 ${urgencyStyles(item.urgency)}`}
+            >
+              <div className="shrink-0">{iconForType(item.type)}</div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium leading-tight truncate">{item.title}</p>
+                <p className="text-xs opacity-70 mt-0.5">{item.subtitle}</p>
+              </div>
+              <ChevronRight className="h-4 w-4 opacity-40 shrink-0" />
+            </Link>
+          ))}
         </div>
       </CardContent>
     </Card>

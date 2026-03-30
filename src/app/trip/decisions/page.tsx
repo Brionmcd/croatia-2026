@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   Card,
   CardContent,
@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Vote, Check, Clock, Share2 } from "lucide-react";
+import { Vote, Check, Clock, ThumbsUp, MessageCircle, Sparkles } from "lucide-react";
 import {
   getTripByAccessCode,
   getDecisions,
@@ -41,6 +41,102 @@ interface DecisionWithDetails {
   votes: VoteType[];
 }
 
+interface Recommendation {
+  optionId: string;
+  reason: string;
+  confidence: "high" | "medium";
+}
+
+// --- Smart Recommendation Engine ---
+// Scores options based on cost, pros/cons, and kid-friendliness
+function getRecommendation(options: DecisionOption[]): Recommendation | null {
+  if (options.length < 2) return null;
+
+  const scored = options.map((opt) => {
+    let score = 0;
+    let reasons: string[] = [];
+
+    // Count pros and cons (split by comma, semicolon, or period)
+    const proCount = opt.pros ? opt.pros.split(/[,;.]/).filter((s) => s.trim()).length : 0;
+    const conCount = opt.cons ? opt.cons.split(/[,;.]/).filter((s) => s.trim()).length : 0;
+
+    // Pros/cons balance
+    score += (proCount - conCount) * 15;
+    if (proCount > 0 && conCount === 0) {
+      reasons.push("no downsides");
+    }
+
+    // Cost efficiency — lower cost is better, but only if meaningfully different
+    if (opt.cost_eur != null) {
+      const allCosts = options.filter((o) => o.cost_eur != null).map((o) => o.cost_eur!);
+      const minCost = Math.min(...allCosts);
+      const maxCost = Math.max(...allCosts);
+      if (maxCost > minCost && maxCost - minCost > 50) {
+        // Normalize: cheapest gets +20, most expensive gets 0
+        const costScore = ((maxCost - opt.cost_eur!) / (maxCost - minCost)) * 20;
+        score += costScore;
+        if (opt.cost_eur === minCost && maxCost - minCost > 100) {
+          reasons.push(`saves ${"\u20AC"}${(maxCost - minCost).toLocaleString()}`);
+        }
+      }
+    }
+
+    // Kid-friendliness — check cons for age/restriction keywords
+    const consLower = (opt.cons ?? "").toLowerCase();
+    const hasKidIssue =
+      consLower.includes("age") ||
+      consLower.includes("child") ||
+      consLower.includes("kid") ||
+      consLower.includes("restriction") ||
+      consLower.includes("young") ||
+      consLower.includes("minimum");
+    if (hasKidIssue) {
+      score -= 25;
+    }
+    if (!hasKidIssue && options.some((o) => {
+      const c = (o.cons ?? "").toLowerCase();
+      return c.includes("age") || c.includes("child") || c.includes("restriction");
+    })) {
+      reasons.push("kid-friendly");
+      score += 10;
+    }
+
+    // Pros quality — longer/more detailed pros suggest more value
+    if (proCount >= 2) {
+      reasons.push(`${proCount} advantages`);
+    }
+
+    return { option: opt, score, reasons };
+  });
+
+  // Sort by score descending
+  scored.sort((a, b) => b.score - a.score);
+
+  const best = scored[0];
+  const runnerUp = scored[1];
+  const gap = best.score - runnerUp.score;
+
+  // Only recommend if there's a meaningful gap
+  if (gap < 8) return null;
+
+  const confidence = gap >= 20 ? "high" : "medium";
+  const reason = best.reasons.length > 0
+    ? best.reasons.slice(0, 2).join(" and ")
+    : "best overall value";
+
+  return {
+    optionId: best.option.id,
+    reason: reason.charAt(0).toUpperCase() + reason.slice(1),
+    confidence,
+  };
+}
+
+// --- WhatsApp helpers ---
+function openWhatsApp(text: string) {
+  const encoded = encodeURIComponent(text);
+  window.open(`https://wa.me/?text=${encoded}`, "_blank");
+}
+
 export default function DecisionsPage() {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [families, setFamilies] = useState<Family[]>([]);
@@ -48,7 +144,6 @@ export default function DecisionsPage() {
   const [selectedFamilyId, setSelectedFamilyId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [votingInProgress, setVotingInProgress] = useState<string | null>(null);
-  const [copiedDecisionId, setCopiedDecisionId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     const code = localStorage.getItem("croatia2026_access_code");
@@ -95,6 +190,18 @@ export default function DecisionsPage() {
     loadData();
   }, [loadData]);
 
+  // Pre-compute recommendations for all open decisions
+  const recommendations = useMemo(() => {
+    const map: Record<string, Recommendation> = {};
+    for (const d of decisions) {
+      if (d.decision.status === "open") {
+        const rec = getRecommendation(d.options);
+        if (rec) map[d.decision.id] = rec;
+      }
+    }
+    return map;
+  }, [decisions]);
+
   function handleFamilyChange(familyId: string | null) {
     if (!familyId) return;
     setSelectedFamilyId(familyId);
@@ -118,35 +225,50 @@ export default function DecisionsPage() {
     setVotingInProgress(null);
   }
 
-  function handleShare(d: DecisionWithDetails) {
-    const optionsList = d.options
-      .map((o) => `  - ${o.title}${o.cost_eur ? ` (${o.cost_eur} EUR)` : ""}`)
-      .join("\n");
+  function handleShareWhatsApp(d: DecisionWithDetails) {
+    const rec = recommendations[d.decision.id];
+    const recOption = rec ? d.options.find((o) => o.id === rec.optionId) : null;
     const url = typeof window !== "undefined" ? window.location.origin + "/trip/decisions" : "";
-    const text = `\u{1F5F3}\uFE0F Vote needed: ${d.decision.title}\n\nOptions:\n${optionsList}\n\nVote at: ${url}`;
 
-    // Try native share first (mobile), fall back to clipboard
-    if (navigator.share) {
-      navigator.share({ text }).catch(() => {
-        copyToClipboard(text, d.decision.id);
-      });
-    } else {
-      copyToClipboard(text, d.decision.id);
+    let text = `\u{1F5F3}\uFE0F *${d.decision.title}*\n`;
+    if (d.decision.description) {
+      text += `${d.decision.description}\n`;
     }
-  }
+    text += "\n";
 
-  function copyToClipboard(text: string, decisionId: string) {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopiedDecisionId(decisionId);
-      setTimeout(() => setCopiedDecisionId(null), 2000);
-    });
+    if (recOption && rec) {
+      text += `\u2B50 *Recommended: ${recOption.title}*\n`;
+      text += `${rec.reason}`;
+      if (recOption.cost_eur != null) {
+        text += ` \u00B7 ${"\u20AC"}${recOption.cost_eur.toLocaleString()}`;
+      }
+      text += "\n\n";
+      const otherOptions = d.options.filter((o) => o.id !== rec.optionId);
+      if (otherOptions.length > 0) {
+        text += "Other options:\n";
+        for (const o of otherOptions) {
+          text += `  \u2022 ${o.title}`;
+          if (o.cost_eur != null) text += ` (${"\u20AC"}${o.cost_eur.toLocaleString()})`;
+          text += "\n";
+        }
+        text += "\n";
+      }
+    } else {
+      text += "Options:\n";
+      for (const o of d.options) {
+        text += `  \u2022 ${o.title}`;
+        if (o.cost_eur != null) text += ` (${"\u20AC"}${o.cost_eur.toLocaleString()})`;
+        text += "\n";
+      }
+      text += "\n";
+    }
+
+    text += `Vote here: ${url}`;
+
+    openWhatsApp(text);
   }
 
   // Helpers
-  function getFamilyName(familyId: string): string {
-    return families.find((f) => f.id === familyId)?.name ?? "Unknown";
-  }
-
   function getFamilyVote(
     votes: VoteType[],
     familyId: string
@@ -167,7 +289,6 @@ export default function DecisionsPage() {
     if (d.decision.decided_option_id) {
       return d.options.find((o) => o.id === d.decision.decided_option_id) ?? null;
     }
-    // If all families voted, find the option with the most votes
     if (d.votes.length >= families.length && families.length > 0) {
       const counts: Record<string, number> = {};
       for (const v of d.votes) {
@@ -184,17 +305,6 @@ export default function DecisionsPage() {
       return d.options.find((o) => o.id === winnerId) ?? null;
     }
     return null;
-  }
-
-  function statusBadge(status: Decision["status"]) {
-    switch (status) {
-      case "open":
-        return <Badge variant="default" className="bg-blue-500 hover:bg-blue-600">Open</Badge>;
-      case "decided":
-        return <Badge variant="default" className="bg-green-600 hover:bg-green-700">Decided</Badge>;
-      case "expired":
-        return <Badge variant="secondary">Expired</Badge>;
-    }
   }
 
   function formatDeadline(deadline: string | null): string | null {
@@ -272,7 +382,7 @@ export default function DecisionsPage() {
           Decisions
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Vote on group decisions. Tap an option to cast your vote.
+          We've analyzed each option for you. Vote or share to WhatsApp.
         </p>
       </div>
 
@@ -285,9 +395,9 @@ export default function DecisionsPage() {
 
       {/* No family selected warning */}
       {!selectedFamilyId && (
-        <Card className="border-amber-500/50 bg-amber-50 dark:bg-amber-950/20">
+        <Card className="border-amber-500/50 bg-amber-50">
           <CardContent className="py-3 px-4">
-            <p className="text-sm text-amber-700 dark:text-amber-400">
+            <p className="text-sm text-amber-700">
               Select your family above to vote on decisions.
             </p>
           </CardContent>
@@ -296,15 +406,16 @@ export default function DecisionsPage() {
 
       {/* Open decisions */}
       {openDecisions.length > 0 && (
-        <section className="space-y-4">
+        <section className="space-y-5">
           <h2 className="text-lg font-semibold text-foreground">
-            Open Votes ({openDecisions.length})
+            Needs Your Input ({openDecisions.length})
           </h2>
           {openDecisions.map((d) => {
             const myVote = getMyVote(d.votes);
             const allVoted = d.votes.length >= families.length && families.length > 0;
             const winner = allVoted ? getWinningOption(d) : null;
             const deadline = formatDeadline(d.decision.deadline);
+            const rec = recommendations[d.decision.id];
 
             return (
               <Card key={d.decision.id} className="overflow-hidden">
@@ -320,48 +431,50 @@ export default function DecisionsPage() {
                         </CardDescription>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {statusBadge(d.decision.status)}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => handleShare(d)}
-                        title="Share to WhatsApp"
-                      >
-                        {copiedDecisionId === d.decision.id ? (
-                          <Check className="h-4 w-4 text-green-500" />
-                        ) : (
-                          <Share2 className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
+                    {deadline && (
+                      <Badge variant="secondary" className="shrink-0 text-xs">
+                        <Clock className="h-3 w-3 mr-1" />
+                        {deadline}
+                      </Badge>
+                    )}
                   </div>
-                  {deadline && (
-                    <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      {deadline}
-                    </p>
-                  )}
                 </CardHeader>
 
                 <CardContent className="space-y-4">
+                  {/* Recommendation banner */}
+                  {rec && !allVoted && (
+                    <div className="rounded-lg bg-primary/5 border border-primary/15 p-3">
+                      <div className="flex items-start gap-2">
+                        <Sparkles className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-primary">
+                            Recommended: {d.options.find((o) => o.id === rec.optionId)?.title}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {rec.reason}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* All voted result */}
                   {allVoted && winner && (
-                    <div className="rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 p-3">
-                      <p className="text-sm font-medium text-green-800 dark:text-green-300 flex items-center gap-1.5">
+                    <div className="rounded-lg bg-green-50 border border-green-200 p-3">
+                      <p className="text-sm font-medium text-green-800 flex items-center gap-1.5">
                         <Check className="h-4 w-4" />
-                        All families voted! Winner: {winner.title}
+                        All families voted — {winner.title} wins!
                       </p>
                     </div>
                   )}
 
-                  {/* Options grid */}
+                  {/* Options */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {d.options.map((option) => {
                       const isMyVote = myVote?.option_id === option.id;
                       const voteCount = getVoteCountForOption(d.votes, option.id);
                       const isWinner = winner?.id === option.id;
+                      const isRecommended = rec?.optionId === option.id;
                       const isVoting = votingInProgress === d.decision.id;
 
                       return (
@@ -373,26 +486,33 @@ export default function DecisionsPage() {
                             relative text-left rounded-lg border-2 p-4 transition-all
                             ${
                               isMyVote
-                                ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30 ring-1 ring-blue-500/30"
+                                ? "border-primary bg-primary/5 ring-1 ring-primary/30"
                                 : isWinner
-                                ? "border-green-500 bg-green-50 dark:bg-green-950/20"
+                                ? "border-green-500 bg-green-50"
+                                : isRecommended
+                                ? "border-primary/30 bg-primary/[0.02]"
                                 : "border-border hover:border-primary/40 hover:bg-accent/50"
                             }
                             ${!selectedFamilyId ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}
                             ${isVoting ? "animate-pulse" : ""}
                           `}
                         >
-                          {/* Selected indicator */}
-                          {isMyVote && (
-                            <div className="absolute top-2 right-2">
-                              <div className="bg-blue-500 text-white rounded-full p-0.5">
+                          {/* Top-right badges */}
+                          <div className="absolute top-2 right-2 flex items-center gap-1">
+                            {isRecommended && !isMyVote && (
+                              <span className="bg-primary/10 text-primary rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+                                Best
+                              </span>
+                            )}
+                            {isMyVote && (
+                              <div className="bg-primary text-white rounded-full p-0.5">
                                 <Check className="h-3 w-3" />
                               </div>
-                            </div>
-                          )}
+                            )}
+                          </div>
 
                           <div className="space-y-2">
-                            <div className="font-semibold text-sm pr-6">
+                            <div className="font-semibold text-sm pr-12">
                               {option.title}
                             </div>
 
@@ -404,26 +524,27 @@ export default function DecisionsPage() {
 
                             {option.cost_eur != null && (
                               <p className="text-sm font-medium">
-                                {option.cost_eur.toLocaleString()} EUR
+                                {"\u20AC"}{option.cost_eur.toLocaleString()}
                               </p>
                             )}
 
                             {option.pros && (
-                              <p className="text-xs text-green-700 dark:text-green-400">
+                              <p className="text-xs text-green-700">
                                 + {option.pros}
                               </p>
                             )}
 
                             {option.cons && (
-                              <p className="text-xs text-red-600 dark:text-red-400">
+                              <p className="text-xs text-red-600">
                                 - {option.cons}
                               </p>
                             )}
 
                             {voteCount > 0 && (
-                              <p className="text-xs text-muted-foreground">
+                              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <ThumbsUp className="h-3 w-3" />
                                 {voteCount} vote{voteCount !== 1 ? "s" : ""}
-                              </p>
+                              </div>
                             )}
                           </div>
                         </button>
@@ -431,12 +552,9 @@ export default function DecisionsPage() {
                     })}
                   </div>
 
-                  {/* Vote status: who voted */}
-                  <div className="border-t pt-3">
-                    <p className="text-xs font-medium text-muted-foreground mb-2">
-                      Vote Status
-                    </p>
-                    <div className="flex flex-wrap gap-2">
+                  {/* Vote status + share row */}
+                  <div className="flex items-center justify-between border-t pt-3 gap-3">
+                    <div className="flex flex-wrap gap-1.5 flex-1 min-w-0">
                       {families.map((family) => {
                         const familyVote = getFamilyVote(d.votes, family.id);
                         const votedOption = familyVote
@@ -447,10 +565,10 @@ export default function DecisionsPage() {
                           <div
                             key={family.id}
                             className={`
-                              inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs
+                              inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs
                               ${
                                 familyVote
-                                  ? "bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300"
+                                  ? "bg-green-100 text-green-800"
                                   : "bg-muted text-muted-foreground"
                               }
                             `}
@@ -466,6 +584,16 @@ export default function DecisionsPage() {
                         );
                       })}
                     </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 gap-1.5 text-green-700 border-green-200 hover:bg-green-50 hover:border-green-300"
+                      onClick={() => handleShareWhatsApp(d)}
+                    >
+                      <MessageCircle className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">Share on WhatsApp</span>
+                      <span className="sm:hidden">WhatsApp</span>
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -500,12 +628,12 @@ export default function DecisionsPage() {
                         </CardDescription>
                       )}
                     </div>
-                    {statusBadge(d.decision.status)}
+                    <Badge variant="default" className="bg-green-600 hover:bg-green-700">Decided</Badge>
                   </div>
                 </CardHeader>
                 <CardContent>
                   {chosenOption ? (
-                    <div className="rounded-lg border-2 border-green-500 bg-green-50 dark:bg-green-950/20 p-3">
+                    <div className="rounded-lg border-2 border-green-500 bg-green-50 p-3">
                       <div className="flex items-center gap-2">
                         <Check className="h-4 w-4 text-green-600 shrink-0" />
                         <span className="font-semibold text-sm">
@@ -513,7 +641,7 @@ export default function DecisionsPage() {
                         </span>
                         {chosenOption.cost_eur != null && (
                           <span className="text-xs text-muted-foreground ml-auto">
-                            {chosenOption.cost_eur.toLocaleString()} EUR
+                            {"\u20AC"}{chosenOption.cost_eur.toLocaleString()}
                           </span>
                         )}
                       </div>
@@ -548,7 +676,7 @@ export default function DecisionsPage() {
                   <CardTitle className="text-base leading-tight text-muted-foreground">
                     {d.decision.title}
                   </CardTitle>
-                  {statusBadge(d.decision.status)}
+                  <Badge variant="secondary">Expired</Badge>
                 </div>
               </CardHeader>
               <CardContent>

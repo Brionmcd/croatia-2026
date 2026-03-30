@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import {
   MessageCircleQuestion,
   Plus,
-  Copy,
+  MessageCircle,
   Check,
   Loader2,
 } from "lucide-react";
@@ -68,7 +68,6 @@ export default function QuestionsPage() {
   const [loading, setLoading] = useState(true);
   const [newQuestion, setNewQuestion] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   const loadData = useCallback(async () => {
     const code = localStorage.getItem(ACCESS_CODE_KEY);
@@ -151,23 +150,10 @@ export default function QuestionsPage() {
     return lines.join("\n");
   }
 
-  async function handleCopyWhatsApp() {
+  function handleShareWhatsApp() {
     const text = buildWhatsAppText();
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Fallback
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textarea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+    const encoded = encodeURIComponent(text);
+    window.open(`https://wa.me/?text=${encoded}`, "_blank");
   }
 
   function formatDate(dateStr: string) {
@@ -196,16 +182,12 @@ export default function QuestionsPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={handleCopyWhatsApp}
-          className="gap-1.5"
+          onClick={handleShareWhatsApp}
+          className="gap-1.5 text-green-700 border-green-200 hover:bg-green-50 hover:border-green-300"
           disabled={questions.length === 0}
         >
-          {copied ? (
-            <Check className="h-3.5 w-3.5" />
-          ) : (
-            <Copy className="h-3.5 w-3.5" />
-          )}
-          {copied ? "Copied!" : "Copy for WhatsApp"}
+          <MessageCircle className="h-3.5 w-3.5" />
+          Share on WhatsApp
         </Button>
       </div>
 
