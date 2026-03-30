@@ -10,8 +10,9 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Vote, Check, Clock, ThumbsUp, MessageCircle, Sparkles, ArrowLeftRight } from "lucide-react";
+import { Vote, Check, Clock, ThumbsUp, MessageCircle, Sparkles, ArrowLeftRight, AlertCircle } from "lucide-react";
 import { useCurrency } from "@/lib/currency";
+import { useFamily } from "@/lib/family-context";
 import {
   getTripByAccessCode,
   getDecisions,
@@ -133,12 +134,12 @@ function openWhatsApp(text: string) {
 
 export default function DecisionsPage() {
   const [trip, setTrip] = useState<Trip | null>(null);
-  const [families, setFamilies] = useState<Family[]>([]);
   const [decisions, setDecisions] = useState<DecisionWithDetails[]>([]);
-  const [selectedFamilyId, setSelectedFamilyId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [votingInProgress, setVotingInProgress] = useState<string | null>(null);
   const { currency, toggle: toggleCurrency, format: fmt } = useCurrency();
+  const { family, families, selectFamily } = useFamily();
+  const selectedFamilyId = family?.id ?? "";
 
   const loadData = useCallback(async () => {
     const code = localStorage.getItem("croatia2026_access_code");
@@ -154,11 +155,7 @@ export default function DecisionsPage() {
     }
     setTrip(tripData);
 
-    const [allDecisions, allFamilies] = await Promise.all([
-      getDecisions(tripData.id),
-      getFamilies(tripData.id),
-    ]);
-    setFamilies(allFamilies);
+    const allDecisions = await getDecisions(tripData.id);
 
     // Fetch options and votes for each decision in parallel
     const decisionsWithDetails: DecisionWithDetails[] = await Promise.all(
@@ -171,12 +168,6 @@ export default function DecisionsPage() {
       })
     );
     setDecisions(decisionsWithDetails);
-
-    // Restore saved family selection
-    const savedFamilyId = localStorage.getItem("croatia2026_family_id");
-    if (savedFamilyId && allFamilies.some((f) => f.id === savedFamilyId)) {
-      setSelectedFamilyId(savedFamilyId);
-    }
 
     setLoading(false);
   }, []);
@@ -199,8 +190,7 @@ export default function DecisionsPage() {
 
   function handleFamilyChange(familyId: string | null) {
     if (!familyId) return;
-    setSelectedFamilyId(familyId);
-    localStorage.setItem("croatia2026_family_id", familyId);
+    selectFamily(familyId);
   }
 
   async function handleVote(decisionId: string, optionId: string) {
@@ -422,15 +412,28 @@ export default function DecisionsPage() {
             const winner = allVoted ? getWinningOption(d) : null;
             const deadline = formatDeadline(d.decision.deadline);
             const rec = recommendations[d.decision.id];
+            const needsMyVote = selectedFamilyId && !myVote;
+
+            // Social pressure: which families haven't voted
+            const votedFamilyIds = new Set(d.votes.map((v) => v.family_id));
+            const missingFamilies = families.filter((f) => !votedFamilyIds.has(f.id));
 
             return (
-              <Card key={d.decision.id} className="overflow-hidden">
+              <Card key={d.decision.id} className={`overflow-hidden ${needsMyVote ? "ring-2 ring-amber-300" : ""}`}>
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      <CardTitle className="text-lg leading-tight">
-                        {d.decision.title}
-                      </CardTitle>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <CardTitle className="text-lg leading-tight">
+                          {d.decision.title}
+                        </CardTitle>
+                        {needsMyVote && (
+                          <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-xs shrink-0">
+                            <AlertCircle className="h-3 w-3 mr-1" />
+                            Vote needed
+                          </Badge>
+                        )}
+                      </div>
                       {d.decision.description && (
                         <CardDescription className="mt-1">
                           {d.decision.description}
@@ -444,6 +447,12 @@ export default function DecisionsPage() {
                       </Badge>
                     )}
                   </div>
+                  {/* Social pressure line */}
+                  {!allVoted && missingFamilies.length > 0 && missingFamilies.length < families.length && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Waiting on {missingFamilies.map((f) => f.name).join(", ")}
+                    </p>
+                  )}
                 </CardHeader>
 
                 <CardContent className="space-y-4">

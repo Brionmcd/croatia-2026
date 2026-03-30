@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Wallet, ArrowLeftRight, Users, Building2, MapPin } from "lucide-react";
+import { Wallet, ArrowLeftRight, Users, Building2, MapPin, Banknote, ChevronDown } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 import { getTripByAccessCode, getBudgetItems } from "@/lib/api";
 import { useCurrency } from "@/lib/currency";
+import { useFamily } from "@/lib/family-context";
 import type { BudgetItem } from "@/types/database";
 
 const NUM_FAMILIES = 4;
@@ -41,7 +42,9 @@ const PAID_TO_LABELS: Record<string, string> = {
 export default function BudgetPage() {
   const [items, setItems] = useState<BudgetItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showGroupView, setShowGroupView] = useState(false);
   const { currency, toggle, format: fmt } = useCurrency();
+  const { family } = useFamily();
 
   useEffect(() => {
     async function load() {
@@ -65,6 +68,8 @@ export default function BudgetPage() {
     [items]
   );
   const progressPct = totalEstimated > 0 ? (totalConfirmed / totalEstimated) * 100 : 0;
+  const perFamily = totalEstimated / NUM_FAMILIES;
+  const perFamilyConfirmed = totalConfirmed / NUM_FAMILIES;
 
   const grouped = useMemo(() => {
     const map: Record<string, BudgetItem[]> = {};
@@ -112,7 +117,14 @@ export default function BudgetPage() {
     <div className="space-y-6">
       {/* Header with currency toggle */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-foreground">Budget</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Budget</h1>
+          {family && (
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {family.name} family&apos;s share
+            </p>
+          )}
+        </div>
         <Button
           variant="outline"
           size="sm"
@@ -130,45 +142,48 @@ export default function BudgetPage() {
         </p>
       )}
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Confirmed
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold text-green-600">{fmt(totalConfirmed)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total (incl. estimated)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{fmt(totalEstimated)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-              <Users className="h-3.5 w-3.5" />
-              Per Family ({NUM_FAMILIES}-way split)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold text-primary">
-              {fmt(totalEstimated / NUM_FAMILIES)}
-            </p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {fmt(totalConfirmed / NUM_FAMILIES)} confirmed
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Primary: Your family's share */}
+      <Card className="bg-gradient-to-br from-primary/5 to-primary/[0.02] border-primary/20">
+        <CardContent className="pt-6">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                <Banknote className="h-4 w-4" />
+                {family ? `${family.name} Family Share` : "Per Family (4-way split)"}
+              </p>
+              <p className="text-3xl font-bold text-primary mt-1">
+                {fmt(perFamily)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {fmt(perFamilyConfirmed)} confirmed
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-muted-foreground">What to bring in cash</p>
+              <p className="text-lg font-semibold text-foreground mt-0.5">
+                {fmt(paidOnSite / NUM_FAMILIES)}
+              </p>
+              <p className="text-xs text-muted-foreground">on-site expenses</p>
+            </div>
+          </div>
+
+          {/* Payment breakdown for this family */}
+          <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-primary/10">
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground">Villa Escape</p>
+              <p className="text-sm font-semibold">{fmt(paidToVilla / NUM_FAMILIES)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground">On-site</p>
+              <p className="text-sm font-semibold">{fmt(paidOnSite / NUM_FAMILIES)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground">Self-pay</p>
+              <p className="text-sm font-semibold">{fmt(paidSelf / NUM_FAMILIES)}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Progress bar */}
       <Card>
@@ -185,6 +200,50 @@ export default function BudgetPage() {
         </CardContent>
       </Card>
 
+      {/* Toggle to show group totals */}
+      <button
+        onClick={() => setShowGroupView(!showGroupView)}
+        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ChevronDown className={`h-4 w-4 transition-transform ${showGroupView ? "rotate-180" : ""}`} />
+        {showGroupView ? "Hide" : "Show"} full group budget
+      </button>
+
+      {showGroupView && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Group Confirmed
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold text-green-600">{fmt(totalConfirmed)}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Group Total (incl. estimated)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold">{fmt(totalEstimated)}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Group to Villa Escape
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold">{fmt(paidToVilla)}</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Category breakdown */}
       <div className="space-y-4">
         {CATEGORY_ORDER.filter((cat) => grouped[cat]).map((cat) => {
@@ -197,11 +256,11 @@ export default function BudgetPage() {
                   <CardTitle className="text-base">
                     {CATEGORY_LABELS[cat] || cat}
                   </CardTitle>
-                  <span className="text-sm font-semibold">{fmt(catTotal)}</span>
+                  <div className="text-right">
+                    <span className="text-sm font-semibold">{fmt(catTotal / NUM_FAMILIES)}</span>
+                    <span className="text-xs text-muted-foreground ml-1.5">/ family</span>
+                  </div>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  {fmt(catTotal / NUM_FAMILIES)} per family
-                </p>
               </CardHeader>
               <CardContent className="pt-0">
                 <div className="divide-y divide-border">
@@ -233,9 +292,9 @@ export default function BudgetPage() {
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <p className="text-sm font-semibold">{fmt(item.amount_eur)}</p>
+                        <p className="text-sm font-semibold">{fmt(item.amount_eur / NUM_FAMILIES)}</p>
                         <p className="text-xs text-muted-foreground">
-                          {fmt(item.amount_eur / NUM_FAMILIES)}/fam
+                          {fmt(item.amount_eur)} total
                         </p>
                       </div>
                     </div>
@@ -246,54 +305,6 @@ export default function BudgetPage() {
           );
         })}
       </div>
-
-      {/* Payment breakdown */}
-      <Separator />
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Payment Breakdown</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Building2 className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm">Paid to Villa Escape</span>
-            </div>
-            <div className="text-right">
-              <span className="text-sm font-semibold">{fmt(paidToVilla)}</span>
-              <span className="text-xs text-muted-foreground ml-2">
-                ({fmt(paidToVilla / NUM_FAMILIES)}/fam)
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <MapPin className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm">Paid on-site</span>
-            </div>
-            <div className="text-right">
-              <span className="text-sm font-semibold">{fmt(paidOnSite)}</span>
-              <span className="text-xs text-muted-foreground ml-2">
-                ({fmt(paidOnSite / NUM_FAMILIES)}/fam)
-              </span>
-            </div>
-          </div>
-          {paidSelf > 0 && (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm">Self-pay</span>
-              </div>
-              <div className="text-right">
-                <span className="text-sm font-semibold">{fmt(paidSelf)}</span>
-                <span className="text-xs text-muted-foreground ml-2">
-                  ({fmt(paidSelf / NUM_FAMILIES)}/fam)
-                </span>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
     </div>
   );
 }

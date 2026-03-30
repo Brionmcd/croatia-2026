@@ -22,22 +22,26 @@ import {
   CalendarDays,
   Vote,
   MessageCircleQuestion,
-  Sparkles,
   ArrowLeftRight,
+  CircleAlert,
+  CircleDot,
+  CircleCheck,
+  ClipboardList,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCurrency } from "@/lib/currency";
+import { useFamily } from "@/lib/family-context";
 import {
   getTripByAccessCode,
   getDays,
   getActivities,
-  getFamilies,
   getDecisions,
   getDecisionOptions,
+  getVotes,
   getQuestions,
+  getPackingItems,
 } from "@/lib/api";
-import type { Trip, Day, Activity, Family, Decision, DecisionOption, Question } from "@/types/database";
+import type { Trip, Day, Activity, Decision, DecisionOption, Question, Vote as VoteType, PackingItem } from "@/types/database";
 
 const ACCESS_CODE_KEY = "croatia2026_access_code";
 const TRIP_START = new Date("2026-07-18T00:00:00");
@@ -84,7 +88,6 @@ function formatDate(dateStr: string, dayOfWeek: string): string {
 }
 
 function formatTime(time: string): string {
-  // time may be "HH:MM" or "HH:MM:SS"
   const [h, m] = time.split(":");
   const hour = parseInt(h, 10);
   const ampm = hour >= 12 ? "PM" : "AM";
@@ -108,23 +111,162 @@ interface DayWithActivities extends Day {
   activities: Activity[];
 }
 
-// --- Action Items ---
+// --- Action Items (family-specific, prioritized) ---
 
 interface ActionItem {
-  type: "decision" | "question" | "activity";
+  type: "decision" | "question" | "flight" | "packing" | "activity";
   title: string;
   subtitle: string;
   href: string;
-  urgency: "high" | "medium" | "low";
+  urgency: "urgent" | "this_week" | "coming_up";
+}
+
+function computeActionItems(
+  familyId: string | null,
+  families: { id: string; name: string; arrival_flight: string | null; departure_flight: string | null }[],
+  decisions: { decision: Decision; options: DecisionOption[]; votes: VoteType[] }[],
+  questions: Question[],
+  packingItems: PackingItem[],
+  packingCheckedCount: number,
+): ActionItem[] {
+  const items: ActionItem[] = [];
+  const allFamilyCount = families.length || NUM_FAMILIES;
+
+  // --- Decision votes ---
+  const openDecisions = decisions.filter((d) => d.decision.status === "open");
+  for (const d of openDecisions) {
+    const deadlineDate = d.decision.deadline ? new Date(d.decision.deadline) : null;
+    const daysLeft = deadlineDate
+      ? Math.ceil((deadlineDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+      : null;
+
+    // Check if THIS family has voted
+    const familyHasVoted = familyId
+      ? d.votes.some((v) => v.family_id === familyId)
+      : false;
+
+    if (familyId && familyHasVoted) continue; // Skip if already voted
+
+    // Figure out who hasn't voted
+    const votedFamilyIds = new Set(d.votes.map((v) => v.family_id));
+    const missingFamilies = families.filter((f) => !votedFamilyIds.has(f.id));
+    const waitingText = familyId && !familyHasVoted
+      ? "You haven't voted yet"
+      : missingFamilies.length > 0
+        ? `Waiting on ${missingFamilies.map((f) => f.name).join(", ")}`
+        : "Vote needed";
+
+    const urgency: ActionItem["urgency"] =
+      daysLeft !== null && daysLeft <= 0 ? "urgent"
+        : daysLeft !== null && daysLeft <= 7 ? "this_week"
+          : "coming_up";
+
+    items.push({
+      type: "decision",
+      title: d.decision.title,
+      subtitle: daysLeft !== null && daysLeft <= 0
+        ? `Deadline passed — ${waitingText.toLowerCase()}`
+        : waitingText,
+      href: "/trip/decisions",
+      urgency,
+    });
+  }
+
+  // --- Unanswered questions (blocking) ---
+  const unansweredCount = questions.filter((q) => q.status === "pending" || q.status === "asked").length;
+  if (unansweredCount > 0) {
+    items.push({
+      type: "question",
+      title: `${unansweredCount} question${unansweredCount > 1 ? "s" : ""} for Villa Escape`,
+      subtitle: "Still awaiting answers",
+      href: "/trip/logistics",
+      urgency: "this_week",
+    });
+  }
+
+  // --- New answers ---
+  const answeredQuestions = questions.filter((q) => q.status === "answered");
+  if (answeredQuestions.length > 0) {
+    items.push({
+      type: "question",
+      title: `${answeredQuestions.length} new answer${answeredQuestions.length > 1 ? "s" : ""} from Villa Escape`,
+      subtitle: "Review and mark resolved",
+      href: "/trip/logistics",
+      urgency: "this_week",
+    });
+  }
+
+  // --- Missing flight info (family-specific) ---
+  if (familyId) {
+    const myFamily = families.find((f) => f.id === familyId);
+    if (myFamily) {
+      if (!myFamily.arrival_flight) {
+        items.push({
+          type: "flight",
+          title: "Add your arrival flight details",
+          subtitle: "Needed for transfer booking",
+          href: "/trip/logistics",
+          urgency: "this_week",
+        });
+      }
+      if (!myFamily.departure_flight) {
+        items.push({
+          type: "flight",
+          title: "Add your departure flight details",
+          subtitle: "Needed for transfer booking",
+          href: "/trip/logistics",
+          urgency: "coming_up",
+        });
+      }
+    }
+  } else {
+    // Show all missing flights
+    const missingArrival = families.filter((f) => !f.arrival_flight);
+    const missingDeparture = families.filter((f) => !f.departure_flight);
+    if (missingArrival.length > 0) {
+      items.push({
+        type: "flight",
+        title: `Missing arrival flights: ${missingArrival.map((f) => f.name).join(", ")}`,
+        subtitle: "Needed for transfer booking",
+        href: "/trip/logistics",
+        urgency: "this_week",
+      });
+    }
+    if (missingDeparture.length > 0) {
+      items.push({
+        type: "flight",
+        title: `Missing departure flights: ${missingDeparture.map((f) => f.name).join(", ")}`,
+        subtitle: "Needed for transfer booking",
+        href: "/trip/logistics",
+        urgency: "coming_up",
+      });
+    }
+  }
+
+  // --- Packing progress ---
+  if (packingItems.length > 0 && packingCheckedCount < packingItems.length) {
+    const pct = Math.round((packingCheckedCount / packingItems.length) * 100);
+    items.push({
+      type: "packing",
+      title: pct === 0 ? "Review your packing list" : `Packing: ${packingCheckedCount}/${packingItems.length} items checked`,
+      subtitle: pct === 0 ? `${packingItems.length} items to review` : `${packingItems.length - packingCheckedCount} remaining`,
+      href: "/trip/logistics",
+      urgency: "coming_up",
+    });
+  }
+
+  // Sort by urgency
+  const urgencyOrder = { urgent: 0, this_week: 1, coming_up: 2 };
+  items.sort((a, b) => urgencyOrder[a.urgency] - urgencyOrder[b.urgency]);
+
+  return items;
 }
 
 // --- Component ---
 
-export default function ItineraryPage() {
-  const router = useRouter();
+export default function HomePage() {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [days, setDays] = useState<DayWithActivities[]>([]);
-  const [families, setFamilies] = useState<Family[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedActivities, setExpandedActivities] = useState<Set<string>>(new Set());
@@ -134,15 +276,13 @@ export default function ItineraryPage() {
   });
   const [actionItems, setActionItems] = useState<ActionItem[]>([]);
   const { currency, toggle: toggleCurrency, format: fmt } = useCurrency();
+  const { family, families } = useFamily();
 
   const toggleActivity = useCallback((id: string) => {
     setExpandedActivities((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }, []);
@@ -152,29 +292,23 @@ export default function ItineraryPage() {
     async function load() {
       try {
         const code = localStorage.getItem(ACCESS_CODE_KEY);
-        if (!code) {
-          router.replace("/");
-          return;
-        }
+        if (!code) return;
 
         const tripData = await getTripByAccessCode(code);
         if (!tripData) {
-          // Invalid code — clear it and send back to entry screen
           localStorage.removeItem(ACCESS_CODE_KEY);
-          router.replace("/");
           return;
         }
         setTrip(tripData);
 
-        const [daysData, familiesData, decisionsData, questionsData] = await Promise.all([
+        const [daysData, decisionsData, questionsData, packingData] = await Promise.all([
           getDays(tripData.id),
-          getFamilies(tripData.id),
           getDecisions(tripData.id),
           getQuestions(tripData.id),
+          getPackingItems(tripData.id),
         ]);
-        setFamilies(familiesData);
 
-        // Fetch activities for all days in parallel
+        // Fetch activities for all days
         const daysWithActivities = await Promise.all(
           daysData.map(async (day) => {
             const activities = await getActivities(day.id);
@@ -183,82 +317,47 @@ export default function ItineraryPage() {
         );
         setDays(daysWithActivities);
 
-        // Compute action items
-        const items: ActionItem[] = [];
-
-        // Open decisions needing votes
-        const openDecisions = decisionsData.filter((d) => d.status === "open");
-        for (const d of openDecisions) {
-          const deadlineDate = d.deadline ? new Date(d.deadline) : null;
-          const daysLeft = deadlineDate
-            ? Math.ceil((deadlineDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-            : null;
-          const urgency = daysLeft !== null && daysLeft <= 3 ? "high" : daysLeft !== null && daysLeft <= 7 ? "medium" : "low";
-          items.push({
-            type: "decision",
-            title: d.title,
-            subtitle: daysLeft !== null
-              ? daysLeft <= 0 ? "Deadline passed" : daysLeft === 1 ? "Due tomorrow" : `${daysLeft} days left`
-              : "Vote needed",
-            href: "/trip/decisions",
-            urgency,
-          });
-        }
-
-        // Questions with new answers
-        const answeredQuestions = questionsData.filter((q) => q.status === "answered");
-        for (const q of answeredQuestions) {
-          items.push({
-            type: "question",
-            title: q.question.length > 60 ? q.question.slice(0, 57) + "..." : q.question,
-            subtitle: "New answer from Villa Escape",
-            href: "/trip/questions",
-            urgency: "medium",
-          });
-        }
-
-        // Pending questions (not yet asked)
-        const pendingCount = questionsData.filter((q) => q.status === "pending").length;
-        if (pendingCount > 0) {
-          items.push({
-            type: "question",
-            title: `${pendingCount} question${pendingCount > 1 ? "s" : ""} to send`,
-            subtitle: "Ready to share with Villa Escape",
-            href: "/trip/questions",
-            urgency: "low",
-          });
-        }
-
-        // Activities pending vote
-        const pendingActivities = daysWithActivities.flatMap((d) =>
-          d.activities.filter((a) => a.status === "pending_vote")
+        // Fetch votes and options for decisions
+        const decisionsWithDetails = await Promise.all(
+          decisionsData.map(async (decision) => {
+            const [options, votes] = await Promise.all([
+              getDecisionOptions(decision.id),
+              getVotes(decision.id),
+            ]);
+            return { decision, options, votes };
+          })
         );
-        if (pendingActivities.length > 0 && openDecisions.length === 0) {
-          // Only show if there are no corresponding decisions (avoid duplicates)
-          items.push({
-            type: "activity",
-            title: `${pendingActivities.length} activit${pendingActivities.length > 1 ? "ies" : "y"} awaiting group decision`,
-            subtitle: "Check the Decisions tab",
-            href: "/trip/decisions",
-            urgency: "low",
-          });
+
+        // Compute packing progress for selected family
+        const familyId = family?.id ?? localStorage.getItem("croatia2026_family_id");
+        let packingCheckedCount = 0;
+        if (familyId) {
+          for (const item of packingData) {
+            const key = `croatia2026_packed_${familyId}_${item.id}`;
+            if (localStorage.getItem(key) === "true") packingCheckedCount++;
+          }
         }
 
-        // Sort: high urgency first
-        const urgencyOrder = { high: 0, medium: 1, low: 2 };
-        items.sort((a, b) => urgencyOrder[a.urgency] - urgencyOrder[b.urgency]);
-
+        // Build family-specific action items
+        const items = computeActionItems(
+          familyId,
+          families.length > 0 ? families : [], // May not be loaded yet from context
+          decisionsWithDetails,
+          questionsData,
+          packingData,
+          packingCheckedCount,
+        );
         setActionItems(items);
       } catch (err) {
-        console.error("Error loading itinerary:", err);
-        setError("Failed to load itinerary. Please try again.");
+        console.error("Error loading data:", err);
+        setError("Failed to load. Please try again.");
       } finally {
         setLoading(false);
       }
     }
 
     load();
-  }, []);
+  }, [family, families]);
 
   // Fetch weather
   useEffect(() => {
@@ -295,32 +394,24 @@ export default function ItineraryPage() {
           setWeather({ split: parse(splitData), dubrovnik: parse(dubData) });
         }
       } catch {
-        // Weather is non-critical, fail silently
+        // Weather is non-critical
       }
     }
-
     fetchWeather();
   }, []);
 
-  // Countdown & mode detection
+  // Mode detection
   const now = new Date();
   const diffMs = TRIP_START.getTime() - now.getTime();
   const daysUntilTrip = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
   const todayStr = now.toISOString().split("T")[0];
-
-  // Trip mode: we're within the trip date range (or past it)
   const tripEndDate = trip ? trip.end_date : "2026-07-26";
   const isTripMode = todayStr >= "2026-07-18" && todayStr <= tripEndDate;
   const isTripOver = todayStr > tripEndDate;
-  const isPlanningMode = !isTripMode && !isTripOver;
-
-  // Only highlight "today" and show weather during the actual trip
   const currentDayIndex = isTripMode ? days.findIndex((d) => d.date >= todayStr) : -1;
   const showWeather = isTripMode || daysUntilTrip <= 7;
 
-  if (loading) {
-    return <LoadingSkeleton />;
-  }
+  if (loading) return <LoadingSkeleton />;
 
   if (error) {
     return (
@@ -334,48 +425,20 @@ export default function ItineraryPage() {
 
   return (
     <div className="space-y-6">
-      {/* Countdown hero */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary to-primary/85 p-6 text-primary-foreground shadow-lg shadow-primary/15">
-        <div className="absolute -right-8 -top-8 h-36 w-36 rounded-full bg-white/[0.08]" />
-        <div className="absolute -right-2 top-10 h-20 w-20 rounded-full bg-white/[0.04]" />
-        <div className="relative">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-primary-foreground/70 text-sm font-medium">
-              <Plane className="h-4 w-4" />
-              <span>{trip?.name ?? "Croatia 2026"}</span>
-            </div>
-            <button
-              onClick={toggleCurrency}
-              className="flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium text-primary-foreground/80 hover:bg-white/25 transition-colors"
-            >
-              <ArrowLeftRight className="h-3 w-3" />
-              {currency}
-            </button>
-          </div>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight">
-            {isTripMode
-              ? "Trip time!"
-              : isTripOver
-              ? "What a trip!"
-              : `${daysUntilTrip} days until Croatia!`}
-          </h1>
-          <p className="mt-1.5 text-primary-foreground/60 text-sm">
-            {trip
-              ? `${new Date(trip.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric" })} - ${new Date(trip.end_date + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`
-              : ""}
-            {families.length > 0 && ` \u00B7 ${families.length} families`}
-          </p>
-        </div>
-      </div>
+      {/* Family-specific action items — the hero */}
+      <ActionItemQueue
+        items={actionItems}
+        familyName={family?.name ?? null}
+        daysUntilTrip={daysUntilTrip}
+        isTripMode={isTripMode}
+        isTripOver={isTripOver}
+        currency={currency}
+        toggleCurrency={toggleCurrency}
+      />
 
       {/* Weather strip — only show when trip is ≤7 days away or during trip */}
       {showWeather && weather.split.length > 0 && (
         <WeatherStrip split={weather.split} dubrovnik={weather.dubrovnik} />
-      )}
-
-      {/* Needs Attention */}
-      {actionItems.length > 0 && (
-        <ActionDashboard items={actionItems} />
       )}
 
       {/* Day-by-day timeline */}
@@ -456,6 +519,7 @@ export default function ItineraryPage() {
                       onToggle={() => toggleActivity(activity.id)}
                       familyCount={families.length || NUM_FAMILIES}
                       formatCurrency={fmt}
+                      familyChildrenAges={family?.children_ages ?? null}
                     />
                   ))
                 )}
@@ -478,6 +542,164 @@ export default function ItineraryPage() {
   );
 }
 
+// --- Action Item Queue (replaces countdown hero) ---
+
+function ActionItemQueue({
+  items,
+  familyName,
+  daysUntilTrip,
+  isTripMode,
+  isTripOver,
+  currency,
+  toggleCurrency,
+}: {
+  items: ActionItem[];
+  familyName: string | null;
+  daysUntilTrip: number;
+  isTripMode: boolean;
+  isTripOver: boolean;
+  currency: string;
+  toggleCurrency: () => void;
+}) {
+  const urgentItems = items.filter((i) => i.urgency === "urgent");
+  const weekItems = items.filter((i) => i.urgency === "this_week");
+  const laterItems = items.filter((i) => i.urgency === "coming_up");
+
+  const iconForType = (type: ActionItem["type"]) => {
+    switch (type) {
+      case "decision": return <Vote className="h-4 w-4" />;
+      case "question": return <MessageCircleQuestion className="h-4 w-4" />;
+      case "flight": return <Plane className="h-4 w-4" />;
+      case "packing": return <ClipboardList className="h-4 w-4" />;
+      case "activity": return <CalendarDays className="h-4 w-4" />;
+    }
+  };
+
+  const headline = isTripMode
+    ? "Trip time!"
+    : isTripOver
+      ? "What a trip!"
+      : `${daysUntilTrip} days to go`;
+
+  return (
+    <div className="space-y-4">
+      {/* Compact header with countdown + currency */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">{headline}</h1>
+          {familyName && (
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Welcome, {familyName} family
+            </p>
+          )}
+          {!familyName && (
+            <p className="text-sm text-amber-600 mt-0.5">
+              Select your family above to see personalized actions
+            </p>
+          )}
+        </div>
+        <button
+          onClick={toggleCurrency}
+          className="flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary/80 transition-colors"
+        >
+          <ArrowLeftRight className="h-3 w-3" />
+          {currency}
+        </button>
+      </div>
+
+      {/* Action items grouped by urgency */}
+      {items.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center">
+            <CircleCheck className="h-10 w-10 text-green-500 mx-auto mb-3" />
+            <p className="text-sm font-medium text-foreground">You're all caught up!</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              No actions needed right now. Check back later or scroll down to browse the itinerary.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {/* Urgent */}
+          {urgentItems.length > 0 && (
+            <ActionGroup
+              label="Urgent"
+              icon={<CircleAlert className="h-3.5 w-3.5" />}
+              className="text-red-700 bg-red-50 border-red-200"
+              items={urgentItems}
+              iconForType={iconForType}
+              itemClassName="text-red-700 bg-red-50 border-red-200"
+            />
+          )}
+
+          {/* This week */}
+          {weekItems.length > 0 && (
+            <ActionGroup
+              label="This Week"
+              icon={<CircleDot className="h-3.5 w-3.5" />}
+              className="text-amber-700 bg-amber-50 border-amber-200"
+              items={weekItems}
+              iconForType={iconForType}
+              itemClassName="text-amber-700 bg-amber-50 border-amber-200"
+            />
+          )}
+
+          {/* Coming up */}
+          {laterItems.length > 0 && (
+            <ActionGroup
+              label="Coming Up"
+              icon={<CircleDot className="h-3.5 w-3.5" />}
+              className="text-primary bg-primary/5 border-primary/15"
+              items={laterItems}
+              iconForType={iconForType}
+              itemClassName="text-primary bg-primary/5 border-primary/15"
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActionGroup({
+  label,
+  icon,
+  className,
+  items,
+  iconForType,
+  itemClassName,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  className: string;
+  items: ActionItem[];
+  iconForType: (type: ActionItem["type"]) => React.ReactNode;
+  itemClassName: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider ${className.split(" ")[0]}`}>
+        {icon}
+        {label}
+      </div>
+      {items.map((item, i) => (
+        <Link
+          key={i}
+          href={item.href}
+          className={`flex items-center gap-3 rounded-lg border p-3 transition-colors hover:opacity-80 ${itemClassName}`}
+        >
+          <div className="shrink-0">{iconForType(item.type)}</div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium leading-tight truncate">{item.title}</p>
+            <p className="text-xs opacity-70 mt-0.5">{item.subtitle}</p>
+          </div>
+          <ChevronRight className="h-4 w-4 opacity-40 shrink-0" />
+        </Link>
+      ))}
+    </div>
+  );
+}
+
 // --- Activity Card ---
 
 function ActivityCard({
@@ -486,12 +708,14 @@ function ActivityCard({
   onToggle,
   familyCount,
   formatCurrency,
+  familyChildrenAges,
 }: {
   activity: Activity;
   expanded: boolean;
   onToggle: () => void;
   familyCount: number;
   formatCurrency: (eur: number) => string;
+  familyChildrenAges: number[] | null;
 }) {
   const status = statusConfig[activity.status];
   const hasCost = activity.total_cost_eur != null && activity.total_cost_eur > 0;
@@ -500,6 +724,11 @@ function ActivityCard({
   const hasRestrictions = activity.restrictions && activity.restrictions.trim().length > 0;
   const hasWarnings = activity.warning_flags && activity.warning_flags.length > 0;
   const isCancelled = activity.status === "cancelled";
+
+  // Family-specific age warning
+  const ageWarning = familyChildrenAges && hasRestrictions
+    ? checkAgeRestriction(activity.restrictions!, familyChildrenAges)
+    : null;
 
   return (
     <Card
@@ -533,7 +762,6 @@ function ActivityCard({
             )}
           </div>
 
-          {/* Cost column */}
           {hasCost && (
             <div className="text-right shrink-0">
               <div className="text-sm font-semibold text-foreground">
@@ -547,8 +775,18 @@ function ActivityCard({
         </div>
       </CardHeader>
 
+      {/* Family-specific age warning */}
+      {ageWarning && (
+        <CardContent className="pt-0 -mt-2">
+          <div className="flex items-start gap-1.5 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-1 text-xs font-medium text-amber-700">
+            <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+            {ageWarning}
+          </div>
+        </CardContent>
+      )}
+
       {/* Badges row */}
-      {(hasRestrictions || hasWarnings) && (
+      {!ageWarning && (hasRestrictions || hasWarnings) && (
         <CardContent className="pt-0 -mt-2">
           <div className="flex flex-wrap gap-1.5">
             {hasRestrictions && (
@@ -600,6 +838,22 @@ function ActivityCard({
       )}
     </Card>
   );
+}
+
+/** Check if an activity's restriction text affects this family's children */
+function checkAgeRestriction(restrictions: string, childrenAges: number[]): string | null {
+  if (childrenAges.length === 0) return null;
+
+  const lower = restrictions.toLowerCase();
+  // Look for patterns like "minimum age 12", "ages 12+", "must be 16+"
+  const ageMatch = lower.match(/(?:minimum\s*age|ages?|must\s*be)\s*(\d+)/);
+  if (!ageMatch) return null;
+
+  const minAge = parseInt(ageMatch[1], 10);
+  const tooYoung = childrenAges.filter((age) => age < minAge);
+  if (tooYoung.length === 0) return null;
+
+  return `Your ${tooYoung.join(" & ")}-year-old${tooYoung.length > 1 ? "s" : ""} may not qualify — pending confirmation`;
 }
 
 // --- Weather Strip ---
@@ -675,77 +929,20 @@ function WeatherStrip({
   );
 }
 
-// --- Action Dashboard ---
-
-function ActionDashboard({ items }: { items: ActionItem[] }) {
-  const iconForType = (type: ActionItem["type"]) => {
-    switch (type) {
-      case "decision":
-        return <Vote className="h-4 w-4" />;
-      case "question":
-        return <MessageCircleQuestion className="h-4 w-4" />;
-      case "activity":
-        return <CalendarDays className="h-4 w-4" />;
-    }
-  };
-
-  const urgencyStyles = (urgency: ActionItem["urgency"]) => {
-    switch (urgency) {
-      case "high":
-        return "text-red-700 bg-red-50 border-red-200";
-      case "medium":
-        return "text-amber-700 bg-amber-50 border-amber-200";
-      case "low":
-        return "text-primary bg-primary/5 border-primary/15";
-    }
-  };
-
-  return (
-    <Card size="sm">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-sm">
-          <Sparkles className="h-4 w-4 text-primary" />
-          Needs Your Attention
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="pt-0">
-        <div className="space-y-2">
-          {items.slice(0, 4).map((item, i) => (
-            <Link
-              key={i}
-              href={item.href}
-              className={`flex items-center gap-3 rounded-lg border p-3 transition-colors hover:opacity-80 ${urgencyStyles(item.urgency)}`}
-            >
-              <div className="shrink-0">{iconForType(item.type)}</div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium leading-tight truncate">{item.title}</p>
-                <p className="text-xs opacity-70 mt-0.5">{item.subtitle}</p>
-              </div>
-              <ChevronRight className="h-4 w-4 opacity-40 shrink-0" />
-            </Link>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 // --- Loading Skeleton ---
 
 function LoadingSkeleton() {
   return (
     <div className="space-y-6 animate-pulse">
-      {/* Hero skeleton */}
-      <div className="rounded-2xl bg-primary/10 h-36" />
-
-      {/* Weather skeleton */}
-      <div className="rounded-xl bg-card ring-1 ring-foreground/10 p-4">
-        <div className="h-4 w-32 bg-muted rounded mb-3" />
-        <div className="flex gap-2">
-          {Array.from({ length: 7 }).map((_, i) => (
-            <div key={i} className="h-20 w-[60px] bg-muted rounded-xl shrink-0" />
-          ))}
-        </div>
+      {/* Action items skeleton */}
+      <div>
+        <div className="h-8 w-48 bg-muted rounded mb-2" />
+        <div className="h-4 w-32 bg-muted rounded" />
+      </div>
+      <div className="space-y-2">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="h-16 bg-muted rounded-lg" />
+        ))}
       </div>
 
       {/* Day skeletons */}
@@ -760,10 +957,7 @@ function LoadingSkeleton() {
           </div>
           <div className="space-y-3 mt-2">
             {Array.from({ length: 2 }).map((_, j) => (
-              <div
-                key={j}
-                className="rounded-xl bg-card ring-1 ring-foreground/10 p-4 space-y-2"
-              >
+              <div key={j} className="rounded-xl bg-card ring-1 ring-foreground/10 p-4 space-y-2">
                 <div className="h-3 w-20 bg-muted rounded" />
                 <div className="h-4 w-48 bg-muted rounded" />
                 <div className="h-3 w-64 bg-muted rounded" />
