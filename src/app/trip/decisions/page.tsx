@@ -9,13 +9,6 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Vote, Check, Clock, ThumbsUp, MessageCircle, Sparkles, ArrowLeftRight } from "lucide-react";
 import { useCurrency } from "@/lib/currency";
@@ -714,27 +707,32 @@ function FamilySelector({
 }: {
   families: Family[];
   selectedFamilyId: string;
-  onChange: (familyId: string | null) => void;
+  onChange: (familyId: string) => void;
 }) {
   if (families.length === 0) return null;
 
+  const selectedName = families.find((f) => f.id === selectedFamilyId)?.name;
+
   return (
-    <div className="flex items-center gap-3">
-      <label className="text-sm font-medium text-muted-foreground whitespace-nowrap">
+    <div className="flex items-center gap-3 flex-wrap">
+      <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">
         Voting as:
-      </label>
-      <Select value={selectedFamilyId} onValueChange={onChange}>
-        <SelectTrigger className="w-full max-w-[220px]">
-          <SelectValue placeholder="Select your family" />
-        </SelectTrigger>
-        <SelectContent>
-          {families.map((family) => (
-            <SelectItem key={family.id} value={family.id} label={family.name}>
-              {family.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      </span>
+      <div className="flex gap-1.5 flex-wrap">
+        {families.map((family) => (
+          <button
+            key={family.id}
+            onClick={() => onChange(family.id)}
+            className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors min-h-[36px] ${
+              selectedFamilyId === family.id
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border"
+            }`}
+          >
+            {family.name}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
