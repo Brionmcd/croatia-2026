@@ -589,7 +589,7 @@ function FamilySelector({
         </SelectTrigger>
         <SelectContent>
           {families.map((family) => (
-            <SelectItem key={family.id} value={family.id}>
+            <SelectItem key={family.id} value={family.id} label={family.name}>
               {family.name}
             </SelectItem>
           ))}
