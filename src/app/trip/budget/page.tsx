@@ -157,7 +157,7 @@ export default function BudgetPage() {
             <p className="text-2xl font-bold">{fmt(totalEstimated)}</p>
           </CardContent>
         </Card>
-        <Card className="border-primary/30 bg-primary/5">
+        <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
               <Users className="h-3.5 w-3.5" />

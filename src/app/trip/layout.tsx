@@ -26,7 +26,7 @@ function getCountdown(): string {
   const now = new Date();
   const diff = target.getTime() - now.getTime();
   if (diff <= 0) return "Trip time!";
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
   return `${days} days to go`;
 }
 

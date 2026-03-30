@@ -247,16 +247,16 @@ export default function DecisionsPage() {
   // No decisions
   if (decisions.length === 0) {
     return (
-      <div className="space-y-6 px-4 py-6">
+      <div className="space-y-6">
         <FamilySelector
           families={families}
           selectedFamilyId={selectedFamilyId}
           onChange={handleFamilyChange}
         />
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <Vote className="h-12 w-12 text-primary/30 mb-4" />
-          <h1 className="text-2xl font-bold text-foreground">No Decisions Yet</h1>
-          <p className="mt-2 text-muted-foreground">
+          <Vote className="h-12 w-12 text-primary/20 mb-4" />
+          <h2 className="text-lg font-semibold text-foreground">No Decisions Yet</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
             Decisions will appear here when the group needs to vote on something.
           </p>
         </div>
@@ -265,11 +265,10 @@ export default function DecisionsPage() {
   }
 
   return (
-    <div className="space-y-6 px-4 py-6 pb-24">
+    <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-          <Vote className="h-6 w-6" />
+        <h1 className="text-2xl font-bold text-foreground">
           Decisions
         </h1>
         <p className="text-sm text-muted-foreground mt-1">

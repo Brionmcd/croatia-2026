@@ -145,9 +145,15 @@ function ArrivalsSection({ families }: { families: Family[] }) {
         </h3>
         <div className="grid gap-3 sm:grid-cols-2">
           {familiesWithArrival.length === 0 && (
-            <p className="text-sm text-muted-foreground col-span-2">
-              No arrival info available yet.
-            </p>
+            <div className="col-span-2 flex flex-col items-center justify-center py-8 text-center">
+              <Plane className="h-8 w-8 text-primary/20 mb-2" />
+              <p className="text-sm text-muted-foreground">
+                No arrival info available yet.
+              </p>
+              <p className="text-xs text-muted-foreground/60 mt-1">
+                Flight details will appear here once added.
+              </p>
+            </div>
           )}
           {familiesWithArrival.map((fam) => (
             <Card key={fam.id}>
@@ -190,9 +196,15 @@ function ArrivalsSection({ families }: { families: Family[] }) {
         </h3>
         <div className="grid gap-3 sm:grid-cols-2">
           {familiesWithDeparture.length === 0 && (
-            <p className="text-sm text-muted-foreground col-span-2">
-              No departure info available yet.
-            </p>
+            <div className="col-span-2 flex flex-col items-center justify-center py-8 text-center">
+              <Plane className="h-8 w-8 text-primary/20 mb-2 rotate-45" />
+              <p className="text-sm text-muted-foreground">
+                No departure info available yet.
+              </p>
+              <p className="text-xs text-muted-foreground/60 mt-1">
+                Flight details will appear here once added.
+              </p>
+            </div>
           )}
           {familiesWithDeparture.map((fam) => (
             <Card key={fam.id}>
@@ -845,8 +857,8 @@ export default function LogisticsPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6">
-      <div className="mb-6">
+    <div className="space-y-6">
+      <div>
         <h1 className="text-2xl font-bold text-foreground">
           Logistics &amp; Info Hub
         </h1>
