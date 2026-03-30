@@ -20,6 +20,7 @@ import {
   getVotes,
   getFamilies,
   castVote,
+  removeVote,
 } from "@/lib/api";
 import type {
   Trip,
@@ -197,15 +198,34 @@ export default function DecisionsPage() {
     if (!selectedFamilyId) return;
     setVotingInProgress(decisionId);
 
-    const result = await castVote(decisionId, optionId, selectedFamilyId);
-    if (result) {
-      // Refresh votes for this decision
-      const newVotes = await getVotes(decisionId);
-      setDecisions((prev) =>
-        prev.map((d) =>
-          d.decision.id === decisionId ? { ...d, votes: newVotes } : d
-        )
-      );
+    // Check if clicking the already-voted option → unvote
+    const currentDecision = decisions.find((d) => d.decision.id === decisionId);
+    const existingVote = currentDecision?.votes.find(
+      (v) => v.family_id === selectedFamilyId
+    );
+
+    if (existingVote && existingVote.option_id === optionId) {
+      // Unvote
+      const success = await removeVote(decisionId, selectedFamilyId);
+      if (success) {
+        const newVotes = await getVotes(decisionId);
+        setDecisions((prev) =>
+          prev.map((d) =>
+            d.decision.id === decisionId ? { ...d, votes: newVotes } : d
+          )
+        );
+      }
+    } else {
+      // Cast or change vote
+      const result = await castVote(decisionId, optionId, selectedFamilyId);
+      if (result) {
+        const newVotes = await getVotes(decisionId);
+        setDecisions((prev) =>
+          prev.map((d) =>
+            d.decision.id === decisionId ? { ...d, votes: newVotes } : d
+          )
+        );
+      }
     }
     setVotingInProgress(null);
   }

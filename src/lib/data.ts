@@ -155,6 +155,23 @@ export async function castVote(
   return data
 }
 
+export async function removeVote(
+  decisionId: string,
+  familyId: string
+): Promise<boolean> {
+  const { error } = await supabase
+    .from('votes')
+    .delete()
+    .eq('decision_id', decisionId)
+    .eq('family_id', familyId)
+
+  if (error) {
+    console.error('Error removing vote:', error.message)
+    return false
+  }
+  return true
+}
+
 // --- Families ---
 
 export async function getFamilies(tripId: string): Promise<Family[]> {

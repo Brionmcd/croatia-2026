@@ -11,6 +11,7 @@ export {
   getDecisionOptions,
   getVotes,
   castVote,
+  removeVote,
   getFamilies,
   getBudgetItems,
   getQuestions,
