@@ -17,7 +17,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Vote, Check, Clock, ThumbsUp, MessageCircle, Sparkles } from "lucide-react";
+import { Vote, Check, Clock, ThumbsUp, MessageCircle, Sparkles, ArrowLeftRight } from "lucide-react";
+import { useCurrency } from "@/lib/currency";
 import {
   getTripByAccessCode,
   getDecisions,
@@ -144,6 +145,7 @@ export default function DecisionsPage() {
   const [selectedFamilyId, setSelectedFamilyId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [votingInProgress, setVotingInProgress] = useState<string | null>(null);
+  const { currency, toggle: toggleCurrency, format: fmt } = useCurrency();
 
   const loadData = useCallback(async () => {
     const code = localStorage.getItem("croatia2026_access_code");
@@ -377,13 +379,24 @@ export default function DecisionsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">
-          Decisions
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          We've analyzed each option for you. Vote or share to WhatsApp.
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">
+            Decisions
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            We've analyzed each option for you. Vote or share to WhatsApp.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={toggleCurrency}
+          className="gap-1.5 shrink-0"
+        >
+          <ArrowLeftRight className="h-3.5 w-3.5" />
+          {currency}
+        </Button>
       </div>
 
       {/* Family selector */}
@@ -524,7 +537,7 @@ export default function DecisionsPage() {
 
                             {option.cost_eur != null && (
                               <p className="text-sm font-medium">
-                                {"\u20AC"}{option.cost_eur.toLocaleString()}
+                                {fmt(option.cost_eur)}
                               </p>
                             )}
 
@@ -641,7 +654,7 @@ export default function DecisionsPage() {
                         </span>
                         {chosenOption.cost_eur != null && (
                           <span className="text-xs text-muted-foreground ml-auto">
-                            {"\u20AC"}{chosenOption.cost_eur.toLocaleString()}
+                            {fmt(chosenOption.cost_eur)}
                           </span>
                         )}
                       </div>

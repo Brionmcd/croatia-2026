@@ -3,10 +3,10 @@
 import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   MapPin,
   Clock,
-  Euro,
   AlertTriangle,
   ChevronDown,
   ChevronUp,
@@ -23,9 +23,11 @@ import {
   Vote,
   MessageCircleQuestion,
   Sparkles,
+  ArrowLeftRight,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useCurrency } from "@/lib/currency";
 import {
   getTripByAccessCode,
   getDays,
@@ -72,15 +74,6 @@ function weatherLabel(code: number): string {
   if (code >= 80 && code <= 82) return "Showers";
   if (code >= 95 && code <= 99) return "Thunderstorm";
   return "Clear";
-}
-
-function formatEur(amount: number): string {
-  return new Intl.NumberFormat("en-IE", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount);
 }
 
 function formatDate(dateStr: string, dayOfWeek: string): string {
@@ -140,6 +133,7 @@ export default function ItineraryPage() {
     dubrovnik: [],
   });
   const [actionItems, setActionItems] = useState<ActionItem[]>([]);
+  const { currency, toggle: toggleCurrency, format: fmt } = useCurrency();
 
   const toggleActivity = useCallback((id: string) => {
     setExpandedActivities((prev) => {
@@ -308,17 +302,21 @@ export default function ItineraryPage() {
     fetchWeather();
   }, []);
 
-  // Countdown
+  // Countdown & mode detection
   const now = new Date();
   const diffMs = TRIP_START.getTime() - now.getTime();
   const daysUntilTrip = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
-  const isTripTime = diffMs <= 0;
-
-  // Determine "today" for highlighting
   const todayStr = now.toISOString().split("T")[0];
 
-  // Find the current or next day index
-  const currentDayIndex = days.findIndex((d) => d.date >= todayStr);
+  // Trip mode: we're within the trip date range (or past it)
+  const tripEndDate = trip ? trip.end_date : "2026-07-26";
+  const isTripMode = todayStr >= "2026-07-18" && todayStr <= tripEndDate;
+  const isTripOver = todayStr > tripEndDate;
+  const isPlanningMode = !isTripMode && !isTripOver;
+
+  // Only highlight "today" and show weather during the actual trip
+  const currentDayIndex = isTripMode ? days.findIndex((d) => d.date >= todayStr) : -1;
+  const showWeather = isTripMode || daysUntilTrip <= 7;
 
   if (loading) {
     return <LoadingSkeleton />;
@@ -341,12 +339,25 @@ export default function ItineraryPage() {
         <div className="absolute -right-8 -top-8 h-36 w-36 rounded-full bg-white/[0.08]" />
         <div className="absolute -right-2 top-10 h-20 w-20 rounded-full bg-white/[0.04]" />
         <div className="relative">
-          <div className="flex items-center gap-2 text-primary-foreground/70 text-sm font-medium">
-            <Plane className="h-4 w-4" />
-            <span>{trip?.name ?? "Croatia 2026"}</span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-primary-foreground/70 text-sm font-medium">
+              <Plane className="h-4 w-4" />
+              <span>{trip?.name ?? "Croatia 2026"}</span>
+            </div>
+            <button
+              onClick={toggleCurrency}
+              className="flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium text-primary-foreground/80 hover:bg-white/25 transition-colors"
+            >
+              <ArrowLeftRight className="h-3 w-3" />
+              {currency}
+            </button>
           </div>
           <h1 className="mt-2 text-3xl font-bold tracking-tight">
-            {isTripTime ? "Trip time!" : `${daysUntilTrip} days until Croatia!`}
+            {isTripMode
+              ? "Trip time!"
+              : isTripOver
+              ? "What a trip!"
+              : `${daysUntilTrip} days until Croatia!`}
           </h1>
           <p className="mt-1.5 text-primary-foreground/60 text-sm">
             {trip
@@ -357,8 +368,8 @@ export default function ItineraryPage() {
         </div>
       </div>
 
-      {/* Weather strip */}
-      {weather.split.length > 0 && (
+      {/* Weather strip — only show when trip is ≤7 days away or during trip */}
+      {showWeather && weather.split.length > 0 && (
         <WeatherStrip split={weather.split} dubrovnik={weather.dubrovnik} />
       )}
 
@@ -370,8 +381,8 @@ export default function ItineraryPage() {
       {/* Day-by-day timeline */}
       <div className="space-y-4">
         {days.map((day, dayIdx) => {
-          const isHighlighted = dayIdx === currentDayIndex;
-          const isPast = day.date < todayStr;
+          const isHighlighted = isTripMode && dayIdx === currentDayIndex;
+          const isPast = isTripMode && day.date < todayStr;
           const locationColor =
             day.location?.toLowerCase() === "dubrovnik"
               ? "bg-accent text-accent-foreground"
@@ -444,6 +455,7 @@ export default function ItineraryPage() {
                       expanded={expandedActivities.has(activity.id)}
                       onToggle={() => toggleActivity(activity.id)}
                       familyCount={families.length || NUM_FAMILIES}
+                      formatCurrency={fmt}
                     />
                   ))
                 )}
@@ -473,11 +485,13 @@ function ActivityCard({
   expanded,
   onToggle,
   familyCount,
+  formatCurrency,
 }: {
   activity: Activity;
   expanded: boolean;
   onToggle: () => void;
   familyCount: number;
+  formatCurrency: (eur: number) => string;
 }) {
   const status = statusConfig[activity.status];
   const hasCost = activity.total_cost_eur != null && activity.total_cost_eur > 0;
@@ -522,12 +536,11 @@ function ActivityCard({
           {/* Cost column */}
           {hasCost && (
             <div className="text-right shrink-0">
-              <div className="flex items-center gap-1 text-sm font-semibold text-foreground">
-                <Euro className="h-3.5 w-3.5 text-muted-foreground" />
-                {formatEur(activity.total_cost_eur!).replace("EUR", "").trim()}
+              <div className="text-sm font-semibold text-foreground">
+                {formatCurrency(activity.total_cost_eur!)}
               </div>
               <div className="text-xs text-muted-foreground mt-0.5">
-                {formatEur(perFamily)}/family
+                {formatCurrency(perFamily)}/family
               </div>
             </div>
           )}

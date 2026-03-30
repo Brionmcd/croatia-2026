@@ -8,9 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 import { getTripByAccessCode, getBudgetItems } from "@/lib/api";
+import { useCurrency } from "@/lib/currency";
 import type { BudgetItem } from "@/types/database";
 
-const EUR_TO_USD = 1.08;
 const NUM_FAMILIES = 4;
 const ACCESS_CODE_KEY = "croatia2026_access_code";
 
@@ -41,7 +41,7 @@ const PAID_TO_LABELS: Record<string, string> = {
 export default function BudgetPage() {
   const [items, setItems] = useState<BudgetItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showUsd, setShowUsd] = useState(false);
+  const { currency, toggle, format: fmt } = useCurrency();
 
   useEffect(() => {
     async function load() {
@@ -55,11 +55,6 @@ export default function BudgetPage() {
     }
     load();
   }, []);
-
-  const convert = (eur: number) => (showUsd ? eur * EUR_TO_USD : eur);
-  const symbol = showUsd ? "$" : "\u20AC";
-  const fmt = (eur: number) =>
-    `${symbol}${convert(eur).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
   const totalConfirmed = useMemo(
     () => items.filter((i) => i.is_confirmed).reduce((s, i) => s + i.amount_eur, 0),
@@ -121,17 +116,17 @@ export default function BudgetPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setShowUsd((v) => !v)}
+          onClick={toggle}
           className="gap-1.5"
         >
           <ArrowLeftRight className="h-3.5 w-3.5" />
-          {showUsd ? "USD" : "EUR"}
+          {currency}
         </Button>
       </div>
 
-      {showUsd && (
+      {currency === "USD" && (
         <p className="text-xs text-muted-foreground -mt-4">
-          Using rate: 1 EUR = {EUR_TO_USD} USD
+          Using rate: 1 EUR = 1.08 USD
         </p>
       )}
 
