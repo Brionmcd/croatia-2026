@@ -114,7 +114,7 @@ function ArrivalsSection({ families }: { families: Family[] }) {
                     <span className="mt-1 text-xs font-medium whitespace-nowrap">
                       {arrival.name}
                     </span>
-                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">
                       {arrival.airport ?? ""}
                     </span>
                   </div>

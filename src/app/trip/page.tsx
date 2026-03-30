@@ -244,18 +244,18 @@ export default function ItineraryPage() {
   return (
     <div className="space-y-6">
       {/* Countdown hero */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary to-primary/80 p-6 text-primary-foreground">
-        <div className="absolute -right-6 -top-6 h-32 w-32 rounded-full bg-white/10" />
-        <div className="absolute -right-2 top-8 h-16 w-16 rounded-full bg-white/5" />
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary to-primary/85 p-6 text-primary-foreground shadow-lg shadow-primary/15">
+        <div className="absolute -right-8 -top-8 h-36 w-36 rounded-full bg-white/[0.08]" />
+        <div className="absolute -right-2 top-10 h-20 w-20 rounded-full bg-white/[0.04]" />
         <div className="relative">
-          <div className="flex items-center gap-2 text-primary-foreground/80 text-sm font-medium">
+          <div className="flex items-center gap-2 text-primary-foreground/70 text-sm font-medium">
             <Plane className="h-4 w-4" />
             <span>{trip?.name ?? "Croatia 2026"}</span>
           </div>
           <h1 className="mt-2 text-3xl font-bold tracking-tight">
             {isTripTime ? "Trip time!" : `${daysUntilTrip} days until Croatia!`}
           </h1>
-          <p className="mt-1 text-primary-foreground/70 text-sm">
+          <p className="mt-1.5 text-primary-foreground/60 text-sm">
             {trip
               ? `${new Date(trip.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric" })} - ${new Date(trip.end_date + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`
               : ""}
@@ -312,7 +312,7 @@ export default function ItineraryPage() {
                           {formatDate(day.date, day.day_of_week)}
                         </span>
                         {isHighlighted && (
-                          <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                          <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
                             TODAY
                           </span>
                         )}
@@ -323,7 +323,7 @@ export default function ItineraryPage() {
                     </div>
                   </div>
                   {day.location && (
-                    <Badge className={`${locationColor} text-[10px] font-semibold uppercase tracking-wider`}>
+                    <Badge className={`${locationColor} text-xs font-semibold uppercase tracking-wider`}>
                       <MapPin className="h-3 w-3" />
                       {day.location}
                     </Badge>
@@ -407,7 +407,7 @@ function ActivityCard({
                   {formatTime(activity.time)}
                 </span>
               )}
-              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${status.className}`}>
+              <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${status.className}`}>
                 {status.emoji} {status.label}
               </span>
             </div>
@@ -428,7 +428,7 @@ function ActivityCard({
                 <Euro className="h-3.5 w-3.5 text-muted-foreground" />
                 {formatEur(activity.total_cost_eur!).replace("EUR", "").trim()}
               </div>
-              <div className="text-[10px] text-muted-foreground mt-0.5">
+              <div className="text-xs text-muted-foreground mt-0.5">
                 {formatEur(perFamily)}/family
               </div>
             </div>
@@ -441,7 +441,7 @@ function ActivityCard({
         <CardContent className="pt-0 -mt-2">
           <div className="flex flex-wrap gap-1.5">
             {hasRestrictions && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-xs font-medium text-amber-700">
                 <AlertTriangle className="h-3 w-3" />
                 {activity.restrictions}
               </span>
@@ -450,7 +450,7 @@ function ActivityCard({
               activity.warning_flags.map((flag, i) => (
                 <span
                   key={i}
-                  className="inline-flex items-center gap-1 rounded-full bg-red-50 border border-red-200 px-2 py-0.5 text-[10px] font-medium text-red-700"
+                  className="inline-flex items-center gap-1 rounded-full bg-red-50 border border-red-200 px-2 py-0.5 text-xs font-medium text-red-700"
                 >
                   <AlertTriangle className="h-3 w-3" />
                   {flag}
@@ -514,7 +514,7 @@ function WeatherStrip({
           <div className="flex gap-1">
             <button
               onClick={() => setShowCity("split")}
-              className={`rounded-full px-2.5 py-1 text-[10px] font-semibold transition-colors ${
+              className={`rounded-full px-3.5 py-2 text-xs font-semibold transition-colors min-h-[44px] ${
                 showCity === "split"
                   ? "bg-primary text-primary-foreground"
                   : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
@@ -524,7 +524,7 @@ function WeatherStrip({
             </button>
             <button
               onClick={() => setShowCity("dubrovnik")}
-              className={`rounded-full px-2.5 py-1 text-[10px] font-semibold transition-colors ${
+              className={`rounded-full px-3.5 py-2 text-xs font-semibold transition-colors min-h-[44px] ${
                 showCity === "dubrovnik"
                   ? "bg-accent text-accent-foreground"
                   : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
@@ -546,14 +546,14 @@ function WeatherStrip({
                 key={w.date}
                 className="flex flex-col items-center gap-1 rounded-xl bg-secondary/50 px-3 py-2.5 min-w-[60px]"
               >
-                <span className="text-[10px] font-semibold text-muted-foreground uppercase">
+                <span className="text-xs font-semibold text-muted-foreground uppercase">
                   {dayName}
                 </span>
                 <span className="text-xs font-medium text-foreground">{dayNum}</span>
                 <div title={weatherLabel(w.code)}>{weatherIcon(w.code)}</div>
                 <div className="flex items-baseline gap-1">
                   <span className="text-xs font-semibold text-foreground">{w.tempMax}°</span>
-                  <span className="text-[10px] text-muted-foreground">{w.tempMin}°</span>
+                  <span className="text-xs text-muted-foreground">{w.tempMin}°</span>
                 </div>
               </div>
             );

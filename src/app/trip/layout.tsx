@@ -68,17 +68,17 @@ export default function TripLayout({
   return (
     <div className="flex min-h-dvh flex-col bg-background">
       {/* Desktop top header */}
-      <header className="hidden md:block border-b border-border bg-white/80 backdrop-blur-sm sticky top-0 z-40">
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
+      <header className="hidden md:block border-b border-border/60 bg-white/90 backdrop-blur-md sticky top-0 z-40">
+        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
           <div className="flex items-center gap-3">
-            <span className="text-lg font-bold text-primary">
+            <span className="text-lg font-bold tracking-tight text-primary">
               Croatia 2026
             </span>
-            <span className="text-xs text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">
+            <span className="text-xs text-muted-foreground bg-secondary/80 px-2.5 py-1 rounded-full font-medium">
               {countdown}
             </span>
           </div>
-          <nav className="flex items-center gap-1">
+          <nav className="flex items-center gap-0.5">
             {NAV_ITEMS.map(({ href, label, icon: Icon }) => (
               <Link
                 key={href}
@@ -86,7 +86,7 @@ export default function TripLayout({
                 className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                   isActive(href)
                     ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                    : "text-muted-foreground hover:text-foreground hover:bg-secondary/60"
                 }`}
               >
                 <Icon className="h-4 w-4" />
@@ -98,12 +98,12 @@ export default function TripLayout({
       </header>
 
       {/* Mobile top bar */}
-      <header className="md:hidden border-b border-border bg-white/80 backdrop-blur-sm sticky top-0 z-40">
+      <header className="md:hidden border-b border-border/60 bg-white/90 backdrop-blur-md sticky top-0 z-40">
         <div className="flex h-12 items-center justify-between px-4">
-          <span className="text-base font-bold text-primary">
+          <span className="text-base font-bold tracking-tight text-primary">
             Croatia 2026
           </span>
-          <span className="text-xs text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">
+          <span className="text-xs text-muted-foreground bg-secondary/80 px-2.5 py-1 rounded-full font-medium">
             {countdown}
           </span>
         </div>
@@ -111,17 +111,17 @@ export default function TripLayout({
 
       {/* Main content */}
       <main className="flex-1 pb-20 md:pb-0">
-        <div className="mx-auto max-w-5xl px-4 py-4">{children}</div>
+        <div className="mx-auto max-w-5xl px-4 py-5 md:px-6 md:py-6">{children}</div>
       </main>
 
       {/* Mobile bottom tab bar */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-white/95 backdrop-blur-md safe-area-pb">
-        <div className="flex h-16 items-center justify-around px-2">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-border/60 bg-white/95 backdrop-blur-md safe-area-pb">
+        <div className="flex h-16 items-center justify-around px-1">
           {NAV_ITEMS.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
-              className={`flex flex-col items-center gap-0.5 rounded-lg px-3 py-1.5 text-[10px] font-medium transition-colors min-w-[56px] ${
+              className={`flex flex-col items-center justify-center gap-0.5 rounded-xl px-3 py-1.5 text-[11px] font-medium transition-colors min-w-[58px] min-h-[44px] ${
                 isActive(href)
                   ? "text-primary"
                   : "text-muted-foreground"
